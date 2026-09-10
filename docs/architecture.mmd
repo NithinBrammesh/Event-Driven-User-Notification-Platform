@@ -1,0 +1,22 @@
+flowchart LR
+    Client["Client"]
+
+    Gateway["API Gateway<br/>FastAPI :8000<br/>Public Entry Point"]
+
+    User["User Service<br/>FastAPI :8001<br/>Internal"]
+    Notification["Notification Service<br/>FastAPI :8002<br/>Internal"]
+
+    UserDB[("PostgreSQL<br/>User Data")]
+    NotificationDB[("PostgreSQL<br/>Notification Data")]
+
+    NATS["NATS JetStream<br/>user_events<br/>user.created"]
+
+    Provider["Mock Notification Provider"]
+
+    Client -->|"HTTP / REST + JWT"| Gateway
+    Gateway -->|"Internal HTTP / REST"| User
+    User --> UserDB
+    User -->|"Publish user.created"| NATS
+    NATS -->|"Durable Consumer<br/>Explicit ACK"| Notification
+    Notification --> NotificationDB
+    Notification --> Provider
