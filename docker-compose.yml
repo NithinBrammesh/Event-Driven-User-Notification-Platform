@@ -1,0 +1,117 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: astra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/initdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - astra-network
+
+  nats:
+    image: nats:2.10.26-alpine
+    container_name: astra-nats
+    restart: unless-stopped
+    environment:
+      NATS_USERNAME: ${NATS_USERNAME:-appuser}
+      NATS_PASSWORD: ${NATS_PASSWORD:-appsecret}
+    command: ["-js", "-m", "8222", "--http_port", "8222", "--user", "${NATS_USERNAME:-appuser}", "--pass", "${NATS_PASSWORD:-appsecret}"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8222/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - astra-network
+
+  api-gateway:
+    build:
+      context: ./apps/api-gateway
+    container_name: astra-api-gateway
+    restart: unless-stopped
+    environment:
+      APP_ENV: development
+      HOST: ${API_GATEWAY_HOST:-0.0.0.0}
+      PORT: ${API_GATEWAY_PORT:-8000}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - astra-network
+
+  user-service:
+    build:
+      context: ./apps/user-service
+    container_name: astra-user-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: development
+      HOST: ${USER_SERVICE_HOST:-0.0.0.0}
+      PORT: ${USER_SERVICE_PORT:-8001}
+      DATABASE_URL: ${USER_SERVICE_DATABASE_URL:-postgresql+psycopg://postgres:change_me@postgres:5432/user_service_db}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      NATS_USERNAME: ${NATS_USERNAME:-appuser}
+      NATS_PASSWORD: ${NATS_PASSWORD:-appsecret}
+      NATS_STREAM: ${NATS_STREAM:-user_events}
+      NATS_SUBJECT: ${NATS_SUBJECT:-user.created}
+      NATS_CONSUMER_NAME: ${NATS_CONSUMER_NAME:-notification-service}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - astra-network
+
+  notification-service:
+    build:
+      context: ./apps/notification-service
+    container_name: astra-notification-service
+    restart: unless-stopped
+    environment:
+      APP_ENV: development
+      HOST: ${NOTIFICATION_SERVICE_HOST:-0.0.0.0}
+      PORT: ${NOTIFICATION_SERVICE_PORT:-8002}
+      DATABASE_URL: ${NOTIFICATION_SERVICE_DATABASE_URL:-postgresql+psycopg://postgres:change_me@postgres:5432/notification_service_db}
+      NATS_URL: ${NATS_URL:-nats://nats:4222}
+      NATS_USERNAME: ${NATS_USERNAME:-appuser}
+      NATS_PASSWORD: ${NATS_PASSWORD:-appsecret}
+      NATS_STREAM: ${NATS_STREAM:-user_events}
+      NATS_SUBJECT: ${NATS_SUBJECT:-user.created}
+      NATS_CONSUMER_NAME: ${NATS_CONSUMER_NAME:-notification-service}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - astra-network
+
+volumes:
+  postgres_data:
+  nats_data:
+
+networks:
+  astra-network:
+    driver: bridge
