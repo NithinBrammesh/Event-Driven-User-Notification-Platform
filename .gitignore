@@ -23,3 +23,9 @@ nats_data/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local test artifacts
+*.db
+*.sqlite
+*.sqlite3
+phase5-current-project.zip
